@@ -1,17 +1,16 @@
-// c4.c - C in four functions
-
-// char, int, and pointer types
-// if, while, return, and expression statements
-// just enough features to allow self-compilation and a bit more
-
-// Written by Robert Swierczek
-
+// Based on c4.c by Robert Swierczek
+#ifndef PYC4
+#define PYC4
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "Python.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <memory.h>
-#include <unistd.h>
 #include <fcntl.h>
 #define int long long
+#define Error {PyErr_SetString(PyExc_TypeError, "All arguments must be strings"); return NULL;}
 
 char *p, *lp, // current position in source code
      *data;   // data/bss pointer
@@ -23,9 +22,7 @@ int *e, *le,  // current position in emitted code
     ival,     // current token value
     ty,       // current expression type
     loc,      // local variable offset
-    line,     // current line number
-    src,      // print source and assembly flag
-    debug;    // print executed instructions
+    line;     // current line number
 
 // tokens and classes (operators last and in precedence order)
 enum {
@@ -51,19 +48,7 @@ void next()
 
   while (tk = *p) {
     ++p;
-    if (tk == '\n') {
-      if (src) {
-        printf("%d: %.*s", line, p - lp, lp);
-        lp = p;
-        while (le < e) {
-          printf("%8.4s", &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LC  ,SI  ,SC  ,PSH ,"
-                           "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,"
-                           "OPEN,READ,CLOS,PRTF,MALC,FREE,MSET,MCMP,EXIT,"[*++le * 5]);
-          if (*le <= ADJ) printf(" %d\n", *++le); else printf("\n");
-        }
-      }
-      ++line;
-    }
+    if (tk == '\n') ++line;
     else if (tk == '#') {
       while (*p != 0 && *p != '\n') ++p;
     }
@@ -330,18 +315,11 @@ void stmt()
   }
 }
 
-int main(int argc, char **argv)
+int run(char *code, int argc, char **argv)
 {
-  int fd, bt, ty, poolsz, *idmain;
+  int bt, ty, poolsz, *idmain;
   int *pc, *sp, *bp, a, cycle; // vm registers
   int i, *t; // temps
-
-  --argc; ++argv;
-  if (argc > 0 && **argv == '-' && (*argv)[1] == 's') { src = 1; --argc; ++argv; }
-  if (argc > 0 && **argv == '-' && (*argv)[1] == 'd') { debug = 1; --argc; ++argv; }
-  if (argc < 1) { printf("usage: c4 [-s] [-d] file ...\n"); return -1; }
-
-  if ((fd = open(*argv, 0)) < 0) { printf("could not open(%s)\n", *argv); return -1; }
 
   poolsz = 256*1024; // arbitrary size
   if (!(sym = malloc(poolsz))) { printf("could not malloc(%d) symbol area\n", poolsz); return -1; }
@@ -361,10 +339,8 @@ int main(int argc, char **argv)
   next(); idmain = id; // keep track of main
 
   if (!(lp = p = malloc(poolsz))) { printf("could not malloc(%d) source area\n", poolsz); return -1; }
-  if ((i = read(fd, p, poolsz-1)) <= 0) { printf("read() returned %d\n", i); return -1; }
+  for (i = 0; i < poolsz - 1 && (p[i] = code[i]); i++);
   p[i] = 0;
-  close(fd);
-
   // parse declarations
   line = 1;
   next();
@@ -461,7 +437,6 @@ int main(int argc, char **argv)
   }
 
   if (!(pc = (int *)idmain[Val])) { printf("main() not defined\n"); return -1; }
-  if (src) return 0;
 
   // setup stack
   bp = sp = (int *)((int)sp + poolsz);
@@ -475,13 +450,6 @@ int main(int argc, char **argv)
   cycle = 0;
   while (1) {
     i = *pc++; ++cycle;
-    if (debug) {
-      printf("%d> %.4s", cycle,
-        &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LC  ,SI  ,SC  ,PSH ,"
-         "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,"
-         "OPEN,READ,CLOS,PRTF,MALC,FREE,MSET,MCMP,EXIT,"[i * 5]);
-      if (i <= ADJ) printf(" %d\n", *pc); else printf("\n");
-    }
     if      (i == LEA) a = (int)(bp + *pc++);                             // load local address
     else if (i == IMM) a = *pc++;                                         // load global address or immediate
     else if (i == JMP) pc = (int *)*pc;                                   // jump
@@ -522,7 +490,31 @@ int main(int argc, char **argv)
     else if (i == FREE) free((void *)*sp);
     else if (i == MSET) a = (int)memset((char *)sp[2], sp[1], *sp);
     else if (i == MCMP) a = memcmp((char *)sp[2], (char *)sp[1], *sp);
-    else if (i == EXIT) { printf("exit(%d) cycle = %d\n", *sp, cycle); return *sp; }
+    else if (i == EXIT) { printf("\nexit code: %d\n", *sp, cycle); return *sp; }
     else { printf("unknown instruction = %d! cycle = %d\n", i, cycle); return -1; }
   }
 }
+const static inline PyObject *execute(const PyObject * self, const PyObject *const *args, const Py_ssize_t nargs) {
+  if (!nargs) {
+    PyErr_SetString(PyExc_TypeError, "execute() takes at least 1 positional argument (0 given)");
+    return NULL;
+  }
+  char **argv = malloc(sizeof(char*) * (nargs - 1));
+  if (!PyUnicode_Check(args[0])) Error;
+  for (int i = 1; i < nargs; i++) {
+    if (!PyUnicode_Check(args[i])) Error;
+    argv[i - 1] = PyUnicode_AsUTF8(args[i]);
+  }
+  run(PyUnicode_AsUTF8(args[0]), nargs - 1, argv);
+  Py_RETURN_NONE;
+}
+static PyMethodDef c4_methods[] = {
+  {"execute", execute, METH_FASTCALL, "Execute C code"},
+  {NULL, NULL, 0, NULL}
+};
+static struct PyModuleDef c4 = {PyModuleDef_HEAD_INIT, "c4", NULL, -1, c4_methods};
+PyMODINIT_FUNC PyInit_c4(void){return PyModule_Create(&c4);}
+#ifdef __cplusplus
+}
+#endif
+#endif
