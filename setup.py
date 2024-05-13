@@ -1,7 +1,7 @@
 from setuptools import setup, Extension
 setup(
     name='pyc4',
-    version='1.0.0',
+    version='1.0.1',
     license='GPL-2.0',
     author='Elisha Hollander',
     author_email='just4now666666@gmail.com',

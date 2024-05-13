@@ -17,18 +17,18 @@ The first argument is the code the rest are the `argv`
 >>>
 >>> c4.execute(r"""
 ... int main() {
-...     printf("hi");
+...     printf("hi\n");
 ...     return 0;
 ... }
 ... """)
 hi
-exit code: 0
+0
 >>> c4.execute(r"""
 ... int main(int argc, char **argv) {
-...     printf("%s", argv[0]);
-...     return 0;
+...     printf("%s\n", argv[0]);
+...     return 1;
 ... }
 ... """, "hi")
 hi
-exit code: 0
+1
 ```

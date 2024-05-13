@@ -46,9 +46,9 @@ void next()
 {
   char *pp;
 
-  while (tk = *p) {
+  while ((tk = *p)) {
     ++p;
-    if (tk == '\n') ++line;
+    if (tk == '\n') line++;
     else if (tk == '#') {
       while (*p != 0 && *p != '\n') ++p;
     }
@@ -68,7 +68,7 @@ void next()
       return;
     }
     else if (tk >= '0' && tk <= '9') {
-      if (ival = tk - '0') { while (*p >= '0' && *p <= '9') ival = ival * 10 + *p++ - '0'; }
+      if ((ival = tk - '0')) { while (*p >= '0' && *p <= '9') ival = ival * 10 + *p++ - '0'; }
       else if (*p == 'x' || *p == 'X') {
         while ((tk = *++p) && ((tk >= '0' && tk <= '9') || (tk >= 'a' && tk <= 'f') || (tk >= 'A' && tk <= 'F')))
           ival = ival * 16 + (tk & 15) + (tk >= 'A' ? 9 : 0);
@@ -125,7 +125,7 @@ void expr(int lev)
   else if (tk == '"') {
     *++e = IMM; *++e = ival; next();
     while (tk == '"') next();
-    data = (char *)((int)data + sizeof(int) & -sizeof(int)); ty = PTR;
+    data = (char *)(((int)data + sizeof(int)) & -sizeof(int)); ty = PTR;
   }
   else if (tk == Sizeof) {
     next(); if (tk == '(') next(); else { printf("%d: open paren expected in sizeof\n", line); exit(-1); }
@@ -318,7 +318,7 @@ void stmt()
 int run(char *code, int argc, char **argv)
 {
   int bt, ty, poolsz, *idmain;
-  int *pc, *sp, *bp, a, cycle; // vm registers
+  int *pc, *sp, *bp, a; // vm registers
   int i, *t; // temps
 
   poolsz = 256*1024; // arbitrary size
@@ -338,9 +338,8 @@ int run(char *code, int argc, char **argv)
   next(); id[Tk] = Char; // handle void type
   next(); idmain = id; // keep track of main
 
-  if (!(lp = p = malloc(poolsz))) { printf("could not malloc(%d) source area\n", poolsz); return -1; }
-  for (i = 0; i < poolsz - 1 && (p[i] = code[i]); i++);
-  p[i] = 0;
+  p = code;
+
   // parse declarations
   line = 1;
   next();
@@ -447,9 +446,8 @@ int run(char *code, int argc, char **argv)
   *--sp = (int)t;
 
   // run...
-  cycle = 0;
   while (1) {
-    i = *pc++; ++cycle;
+    i = *pc++;
     if      (i == LEA) a = (int)(bp + *pc++);                             // load local address
     else if (i == IMM) a = *pc++;                                         // load global address or immediate
     else if (i == JMP) pc = (int *)*pc;                                   // jump
@@ -490,8 +488,8 @@ int run(char *code, int argc, char **argv)
     else if (i == FREE) free((void *)*sp);
     else if (i == MSET) a = (int)memset((char *)sp[2], sp[1], *sp);
     else if (i == MCMP) a = memcmp((char *)sp[2], (char *)sp[1], *sp);
-    else if (i == EXIT) { printf("\nexit code: %d\n", *sp, cycle); return *sp; }
-    else { printf("unknown instruction = %d! cycle = %d\n", i, cycle); return -1; }
+    else if (i == EXIT) return *sp;
+    else { printf("unknown instruction = %d\n", i); return -1; }
   }
 }
 const static inline PyObject *execute(const PyObject * self, const PyObject *const *args, const Py_ssize_t nargs) {
@@ -505,8 +503,7 @@ const static inline PyObject *execute(const PyObject * self, const PyObject *con
     if (!PyUnicode_Check(args[i])) Error;
     argv[i - 1] = PyUnicode_AsUTF8(args[i]);
   }
-  run(PyUnicode_AsUTF8(args[0]), nargs - 1, argv);
-  Py_RETURN_NONE;
+  return PyLong_FromLong(run(PyUnicode_AsUTF8(args[0]), nargs - 1, argv));
 }
 static PyMethodDef c4_methods[] = {
   {"execute", execute, METH_FASTCALL, "Execute C code"},
